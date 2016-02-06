@@ -61,15 +61,26 @@ merge_hplus1 <- function(sid){
   i_hplus1 <- numeric(nrow(socc))
   for( i in 1:nrow(socc)){
     print(i)
-    i_hplus1[i] <- find_hour_line(socc$tms_gmt[i], socc$tms_gmt[i:i+4])
+    d_tms <- difftime(socc$tms_gmt[i+(1:4)], socc$tms_gmt[i], units="hours")
+    d_tms <- which(d_tms == 1)
+    if(length(d_tms) == 0){
+      print(socc$tms_gmt[i])
+      d_tms <- NA
+      browser()
+    } else{
+      d_tms + i
+    }
+    i_hplus1[i] <- d_tms
   }
   hplus1 <- socc[i_sweath, c("bikes", "free_slots")]
   names(hplus1) <- c("bikes_hplus1", "free_slots_hplus1")
   socc <- cbind(socc, sweath)
+  socc$occ <- socc$bikes / socc$free_slots
+  socc$occ_hplus1 <- socc$bikes_hplus1 / socc$free_slots_hplus1
   saveRDS(socc, file=paste("occupations_stations_hplus1/", sid, ".RDS", sep=""))
 }
-merge_hplus1_info(l_sid[1])
-lapply(l_sid, merge_hplus1_info)
+merge_hplus1(l_sid[1])
+lapply(l_sid, merge_hplus1)
 
 #TODO Proporly rename hplus 1 column
 #TODO Add percentage of bikes available
