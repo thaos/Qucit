@@ -1,16 +1,20 @@
 library(lubridate)
+library(dplyr)
+library(ggplot2)
+library(doMC)
+registerDoMC(cores=2)
 weather <- read.csv("bordeaux_weather.csv", sep=";")
 weather$tms_gmt <- parse_date_time(weather$tms_gmt, "Ymd HMS", tz="GMT", truncated = 3)
 names(weather)[1]="w_tms_gmt"
 
 stations <- read.csv("bordeaux_bikeshare_stations.csv", sep=";")
 
-# occupations <- read.csv("bordeaux_bikeshare_occupations.csv", sep=";")
-# saveRDS(occupations, file="occupations.RDS")
+occupations <- read.csv("bordeaux_bikeshare_occupations.csv", sep=";")
+saveRDS(occupations, file="occupations.RDS")
 occupations <- readRDS("occupations.RDS")
 
 l_sid <-  unique(stations$sid)
-# dir.create("occupations_stations")
+dir.create("occupations_stations")
 
 split_by_station <- function(sid){
   socc <- occupations[occupations$sid == sid, ]
@@ -42,66 +46,249 @@ find_hour_line <- function(tms_gmt, l_tms_gmt){
 
 dir.create("occupations_stations_weather")
 merge_weather_info <- function(sid){
+  require(foreach)
   socc <-  readRDS(paste("occupations_stations_info/", sid, ".RDS", sep=""))
-  i_sweath <- numeric(nrow(socc))
-  for( i in 1:nrow(socc)){
+  #i_sweath <- numeric(nrow(socc))
+  i_sweath <- foreach(i = 1:nrow(socc), .combine=c) %dopar% {
     print(i)
-    i_sweath[i] <- find_hour_line(socc$tms_gmt[i], weather$w_tms_gmt)
+    # i_sweath[i] <- find_hour_line(socc$tms_gmt[i], weather$w_tms_gmt)
+    find_hour_line(socc$tms_gmt[i], weather$w_tms_gmt)
   }
   sweath <- weather[i_sweath, ]
   socc <- cbind(socc, sweath)
   saveRDS(socc, file=paste("occupations_stations_weather/", sid, ".RDS", sep=""))
 }
+
 merge_weather_info(l_sid[1])
 lapply(l_sid, merge_weather_info)
+# library(parallel)
+# mclapply(l_sid, merge_weather_info)
 
 dir.create("occupations_stations_hplus1")
 merge_hplus1 <- function(sid){
+  require(foreach)
   socc <-  readRDS(paste("occupations_stations_weather/", sid, ".RDS", sep=""))
-  i_hplus1 <- numeric(nrow(socc))
-  for( i in 1:nrow(socc)){
+  i_hplus1 <- foreach(i=1:nrow(socc), .combine=c) %dopar%{
     print(i)
     d_tms <- difftime(socc$tms_gmt[i+(1:4)], socc$tms_gmt[i], units="hours")
     d_tms <- which(d_tms == 1)
     if(length(d_tms) == 0){
       print(socc$tms_gmt[i])
       d_tms <- NA
-      browser()
     } else{
-      d_tms + i
+      d_tms = d_tms + i
     }
-    i_hplus1[i] <- d_tms
+    d_tms
   }
-  hplus1 <- socc[i_sweath, c("bikes", "free_slots")]
+  hplus1 <- socc[i_hplus1, c("bikes", "free_slots")]
   names(hplus1) <- c("bikes_hplus1", "free_slots_hplus1")
-  socc <- cbind(socc, sweath)
-  socc$occ <- socc$bikes / socc$free_slots
-  socc$occ_hplus1 <- socc$bikes_hplus1 / socc$free_slots_hplus1
+  socc <- cbind(socc, hplus1)
+  socc$occ <- socc$bikes / (socc$bikes + socc$free_slots)
+  socc$occ_hplus1 <- socc$bikes_hplus1 / (socc$bikes_hplus1 + socc$free_slots_hplus1)
+  socc$inc_bike <- socc$bikes_hplus1 - socc$bikes
+  socc$inc_occ <- socc$occ_hplus1 - socc$occ
   saveRDS(socc, file=paste("occupations_stations_hplus1/", sid, ".RDS", sep=""))
 }
 merge_hplus1(l_sid[1])
 lapply(l_sid, merge_hplus1)
 
+dir.create("occupations_time_info")
+merge_time_info <- function(sid){
+  require(foreach)
+  socc <-  readRDS(paste("occupations_stations_hplus1/", sid, ".RDS", sep=""))
+  socc$year <- year(socc$tms_gmt)
+  socc$month <- month(socc$tms_gmt)
+  socc$wday <- wday(socc$tms_gmt)
+  socc$hour <- hour(socc$tms_gmt)
+  socc$minute <- minute(socc$tms_gmt)
+  saveRDS(socc, file=paste("occupations_time_info/", sid, ".RDS", sep=""))
+}
+merge_time_info(l_sid[1])
+lapply(l_sid, merge_time_info)
+
+load_sid <- function(sid){
+  socc <-  readRDS(paste("occupations_time_info/", sid, ".RDS", sep=""))
+  i_na <- which(is.na(socc$bikes_hplus))
+  if(length(i_na) == 0) i_na=FALSE
+  i_col <- which(names(socc) %in% c("name", "last_update", "address", "total_slots", "banking", "movable", "extra", "w_tms_gmt"))
+  socc[-i_na,-i_col]
+}
+st1 <- load_sid(1)
+pairs(select(st1,tms_gmt, windchill, wind, windir, pressure, gust, precipitation, bikes))
+pairs(select(st1, occ, occ_hplus1, temperature, precipitation, wind))
+pairs(select(st1, occ, occ_hplus1))
+cor(select(st1, occ, occ_hplus1), use="pairwise.complete.obs")
+pairs(select(st1, occ, inc_occ))
+cor(select(st1, occ, inc_occ), use="pairwise.complete.obs")
+pairs(select(st1, occ, inc_occ, temperature))
+acf(as.ts(select(filter(st1, minute==0),inc_occ)), na.action=na.pass)
+pacf(as.ts(select(filter(st1, minute==0),inc_occ)), na.action=na.pass)
+plot(diff(st1$inc_occ), st1$inc_occ[-1])
+cor(diff(st1$inc_occ), st1$inc_occ[-1], use="pairwise.complete.obs")
+
+
 #TODO Proporly rename hplus 1 column
 #TODO Add percentage of bikes available
 
-compute_mean_increment <- function(sid, tms_gmt, by_hour=TRUE, by_wday=TRUE, by_month=FALSE, period=NULL){
-    socc
-    compute_hour <- (tms_gmt){
-        hour <- hour(tms_gmt) + minute(tms_gmt)/60
-    }
-    hour <- compute_hour(tms_gmt)
-    wday <- wday(tms_gmt)
-    month <- month(tms_gmt)
-    if(by_wdat) wday_cond <- wday(socc$tms_gmt) == wday else wday <- TRUE
-    if(by_month) month_cond <- month(socc$tms_gmt) == month else month <- TRUE
-    if(by_hour) hour_cond <- compute_hour(socc$tms_gmt) == hour else hout <- TRUE
-    # add period condition
-    all_cond <-  wday_cond * month_cond * hour_cond
-    subset <- tms_gmt[all_cond, c("bike_hplus1", "bikes")]
-    ans <- mean(apply(subset, 1, "-"))
-    ans
+compute_mean_increment_tab <- function(socc, max_tms, variable, 
+                                       grouping=c("tms_gmt",
+                                                  "year",
+                                                  "month",
+                                                  "wday",
+                                                  "hour",
+                                                  "minute")){
+    require(dplyr)
+    i_ant <- which(difftime(max_tms, socc$tms_gmt) >= 0)
+    socc <- socc[i_ant, c(grouping, variable)]
+    by_cycle <- group_by_(socc, .dots=grouping)
+    # ddply(data,.(year, month, wday, hour, minute), mean, .parallel=TRUE)
+    summarise_each_(by_cycle, funs(mean), vars=variable)
+}
+st1_it <- compute_mean_increment_tab(st1, max(st1$tms_gmt, na.rm=TRUE), variable="bikes", grouping=c("wday", "hour"))
+ggplot(data=st1_it, aes(x=hour, y=bikes, group=wday, color=as.factor(wday)))+ geom_line()
+
+st1_it <- compute_mean_increment_tab(st1, max(st1$tms_gmt, na.rm=TRUE), variable="bikes", grouping=c("month", "wday"))
+ggplot(data=st1_it, aes(x=month, y=bikes, group=wday, color=as.factor(wday)))+ geom_line()
+
+
+get_increment <- function(inc_table, tms_gmt, variable="icc_bikes", grouping=c("wday", "hour")){
+  line_to_find <- unlist(lapply(grouping, function(x) do.call(x,args=list(x=tms_gmt))))
+  i_line <- which(apply(inc_table[,grouping], 1, function(x) all(x == line_to_find)))
+  #print(inc_table[i_line,])
+  ans <- inc_table[i_line, variable]
+  ans
+}
+st1_inc <- get_increment(st1_it, max(st1$tms_gmt, na.rm=TRUE))
+
+correct_nb_bikes <- function(nb_bikes, total_slots){
+  nb_bikes <- ifelse(nb_bikes > total_slots, total_slots, nb_bikes)
+  nb_bikes <- ifelse(nb_bikes < 0, 0, nb_bikes)
+  nb_bikes
 }
 
+correct_occ <- function(occ){
+  occ <- ifelse(occ > 1, 1, occ)
+  occ <- ifelse(occ < 0, 0, occ)
+  occ
+}
+
+increment_model <- function(socc, tms_gmt, variable="bikes", grouping=c("wday", "hour")){
+  icc_var <- paste("icc_", variable, sep="")
+  inc_table <- compute_mean_increment_tab(socc, tms_gmt, variable, grouping)
+  inc <- get_increment(inc_table, tms_gmt, variable, grouping)
+  i_ans <-  which(socc$tms_gmt == tms_gmt)
+  socc <- socc[i_ans, ]
+  ans <- socc[, variable] + inc
+  ans
+}
+st1_incmod <- increment_model(st1, max(st1$tms_gmt, na.rm=TRUE))
+
+rmse <- function(predicted, truth) sqrt(mean((predicted - truth)^2))
+
+predict.increment_model <- function(socc, variable="bikes", grouping=c("wday", "hour")){
+  ans <- foreach(tms=socc$tms_gmt, .combine=c) %dopar% {
+    increment_model(socc, tms, variable, grouping)
+  }
+  browser()
+  ans <- as.numeric(ans)
+  if(variable == "bikes") ans <- correct_nb_bikes(round(ans), socc$bikes+socc$free_slots)
+  if(variable == "occ") ans <- correct_occ(ans)
+  ans
+}
+print(system.time({p_incmod <- predict.increment_model(head(st1))}))
+print(rmse(p_incmod, head(st1$bikes_hplus1)))
+      
+predict.static_model <- function(sid, variable="bikes", grouping=c("wday", "hour")){
+  socc <- load_sid(sid)
+  ans <- socc[, variable]
+  ans
+}
+p_stamod <- predict.static_model(st1)
+print(rmse(p_stamod, st1$bikes_hplus1))
+
+
+occ_to_bikes <- function(occ, total_slots) {
+  ans <- round(occ * total_slots)
+  ans <- correct_nb_bikes(ans, total_slots)
+  ans
+}
+
+library(ggmap)
+bordeaux_map <- get_googlemap("bordeaux", scale=1, zoom = 12)
+saveRDS(bordeaux_map, file="bordeaux_map.RDS")
+bordeaux_map <- readRDS(file="bordeaux_map.RDS")
+plot_station_map <- function(data, variable){
+  require(ggmap)
+  bmap <- ggmap(bordeaux_map, legend="topleft")
+  bmap + 
+    geom_point(aes_string(x="longitude", y="latitude", colour=variable, size=variable), data=data)
+}
+bdata <- read.csv("bordeaux_bikeshare_stations.csv", sep=";")
+bdata <- arrange(cbind(bdata, color=(bdata$sid==1)), desc(sid))
+plot_station_map(bdata, "color")
+
+plot_sid_ts <- function(l_sid, variable="bikes"){
+  require(ggplot2)
+  data <- foreach(cur_sid = l_sid, .combine=rbind) %dopar% {
+    cur_socc <- load_sid(cur_sid)  
+    cur_socc <- cur_socc[,c("sid", "tms_gmt", variable)]
+    cur_socc <- cbind(cur_socc, col=(cur_socc$sid == l_sid[1]))
+  }
+  ggpot(data=data, aes(x="tms_gmt", y=variable, group="sid", color="col"))
+}
+ 
+compute_sid_corr <- function(sid, l_sid, variable="bikes"){
+  require(geosphere)
+  socc <- load_sid(sid)
+  coord <- socc[1, c("latitude", "longitude")]
+  socc <- socc[,c("tms_gmt", variable)]
+  names(socc)[2] <- paste(variable,"_", sid, sep="")
+  v_corr <- foreach(cur_sid = l_sid, .combine=rbind) %dopar% {
+    cur_socc <- load_sid(cur_sid)  
+    cur_coord <- cur_socc[1, c("latitude", "longitude")]
+    cur_socc <- cur_socc[,c("tms_gmt", variable)]
+    names(cur_socc)[2] <- paste(variable,"_", sid, sep="")
+    cur_socc <- merged(socc, cur_socc, by="tms_gmt")
+    corr <- cor(cur_socc[,-1], socc[, -1], use="pairwise.complete.obs")
+    dist <- distm(coord, cur_coord)
+    data.frame(corr=corr, dist=dist)
+  }
+  v_corr
+}
+
+compute_sid_corr <- function(sid, l_sid, variable="bikes"){
+  require(geosphere)
+  socc <- load_sid(sid)
+  coord <- socc[1, c("latitude", "longitude")]
+  socc <- socc[,c("tms_gmt", variable)]
+  names(socc)[2] <- paste(variable,"_", sid, sep="")
+  v_corr <- foreach(cur_sid = l_sid, .combine=rbind) %dopar% {
+    cur_socc <- load_sid(cur_sid)  
+    cur_coord <- cur_socc[1, c("latitude", "longitude")]
+    cur_socc <- cur_socc[,c("tms_gmt", variable)]
+    names(cur_socc)[2] <- paste(variable,"_", sid, sep="")
+    cur_socc <- merged(socc, cur_socc, by="tms_gmt")
+    corr <- cor(cur_socc[,-1], socc[, -1], use="pairwise.complete.obs")
+    dist <- distm(coord, cur_coord)
+    data.frame(corr=corr, dist=dist)
+  }
+  v_corr
+}
+
+compute_sid_trend <- function(sid, l_sid, variable="bikes"){
+  trends <- foreach(cur_sid = l_sid, .combine=c) %dopar% {
+    cur_socc <- load_sid(cur_sid)  
+    cur_socc <- cur_socc[,c("tms_gmt", variable)]
+    tms_gmt <- cur_socc$tms_gmt
+    y <- cur_socc[,variable]
+    lm_fit <- lm(y~tms_gmt)
+    trend <- coefficients(lm_fit)[2]
+  }
+  trends
+}
+ 
+  
+  
+  
 
 
