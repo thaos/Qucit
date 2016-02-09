@@ -2,6 +2,7 @@ library(lubridate)
 library(dplyr)
 library(ggplot2)
 library(doMC)
+library(fastmatch)
 registerDoMC(cores=2)
 weather <- read.csv("bordeaux_weather.csv", sep=";")
 weather$tms_gmt <- parse_date_time(weather$tms_gmt, "Ymd HMS", tz="GMT", truncated = 3)
@@ -34,58 +35,19 @@ merge_station_info <- function(sid){
 merge_station_info(l_sid[1])
 lapply(l_sid, merge_station_info)
 
-find_hour_line <- function(tms_gmt, l_tms_gmt){
-  d_tms <- difftime(l_tms_gmt, tms_gmt, units="hours")
-  ans <- which(d_tms >= 0 & d_tms < 1)
-  if(length(ans) == 0){
-    print(tms_gmt)
-    ans <- NA
-  }
-  ans
-}
-
-dir.create("occupations_stations_weather")
-merge_weather_info <- function(sid){
-  require(foreach)
-  socc <-  readRDS(paste("occupations_stations_info/", sid, ".RDS", sep=""))
-  #i_sweath <- numeric(nrow(socc))
-  i_sweath <- foreach(i = 1:nrow(socc), .combine=c) %dopar% {
-    print(i)
-    # i_sweath[i] <- find_hour_line(socc$tms_gmt[i], weather$w_tms_gmt)
-    find_hour_line(socc$tms_gmt[i], weather$w_tms_gmt)
-  }
-  sweath <- weather[i_sweath, ]
-  socc <- cbind(socc, sweath)
-  saveRDS(socc, file=paste("occupations_stations_weather/", sid, ".RDS", sep=""))
-}
-
-merge_weather_info(l_sid[1])
-lapply(l_sid, merge_weather_info)
-# library(parallel)
-# mclapply(l_sid, merge_weather_info)
-
 dir.create("occupations_stations_hplus1")
 merge_hplus1 <- function(sid){
   require(foreach)
-  socc <-  readRDS(paste("occupations_stations_weather/", sid, ".RDS", sep=""))
-  i_hplus1 <- foreach(i=1:nrow(socc), .combine=c) %dopar%{
-    print(i)
-    d_tms <- difftime(socc$tms_gmt[i+(1:4)], socc$tms_gmt[i], units="hours")
-    d_tms <- which(d_tms == 1)
-    if(length(d_tms) == 0){
-      print(socc$tms_gmt[i])
-      d_tms <- NA
-    } else{
-      d_tms = d_tms + i
-    }
-    d_tms
+  socc <-  readRDS(paste("occupations_stations_info/", sid, ".RDS", sep=""))
+  i_hplus1 <- foreach(tms=socc$tms_gmt, .combine=c) %dopar%{
+    fmatch(tms+3600,socc$tms_gmt)
   }
   hplus1 <- socc[i_hplus1, c("bikes", "free_slots")]
   names(hplus1) <- c("bikes_hplus1", "free_slots_hplus1")
   socc <- cbind(socc, hplus1)
   socc$occ <- socc$bikes / (socc$bikes + socc$free_slots)
   socc$occ_hplus1 <- socc$bikes_hplus1 / (socc$bikes_hplus1 + socc$free_slots_hplus1)
-  socc$inc_bike <- socc$bikes_hplus1 - socc$bikes
+  socc$inc_bikes <- socc$bikes_hplus1 - socc$bikes
   socc$inc_occ <- socc$occ_hplus1 - socc$occ
   saveRDS(socc, file=paste("occupations_stations_hplus1/", sid, ".RDS", sep=""))
 }
@@ -101,13 +63,44 @@ merge_time_info <- function(sid){
   socc$wday <- wday(socc$tms_gmt)
   socc$hour <- hour(socc$tms_gmt)
   socc$minute <- minute(socc$tms_gmt)
+  socc$year_hplus1 <- year(socc$tms_gmt+3600)
+  socc$month_hplus1 <- month(socc$tms_gmt+3600)
+  socc$wday_hplus1 <- wday(socc$tms_gmt+3600)
+  socc$hour_hplus1 <- hour(socc$tms_gmt+3600)
+  socc$minute_hplus1 <- minute(socc$tms_gmt+3600)
   saveRDS(socc, file=paste("occupations_time_info/", sid, ".RDS", sep=""))
 }
 merge_time_info(l_sid[1])
 lapply(l_sid, merge_time_info)
 
-load_sid <- function(sid){
+dir.create("occupations_stations_weather")
+merge_weather_info <- function(sid){
+  require(foreach)
   socc <-  readRDS(paste("occupations_time_info/", sid, ".RDS", sep=""))
+  weather <- read.csv("bordeaux_weather.csv", sep=";")
+  weather$tms_gmt <- parse_date_time(weather$tms_gmt, "Ymd HMS", tz="GMT", truncated = 3)
+  w_hour <- as.integer(as.numeric(weather$tms_gmt) %/% 3600)
+  s_hour <- as.integer(as.numeric(socc$tms_gmt) %/% 3600)
+  names(weather)[1]="w_tms_gmt"
+  #i_sweath <- numeric(nrow(socc))
+  i_sweath <- foreach(h = s_hour, .combine=c) %dopar% {
+    #print(h)
+    ans <- fmatch(h, w_hour)
+    #print(weather$w_tms_gmt[ans])
+    ans
+  }
+  sweath <- weather[i_sweath, ]
+  socc <- cbind(socc, sweath)
+  saveRDS(socc, file=paste("occupations_stations_weather/", sid, ".RDS", sep=""))
+}
+merge_weather_info(l_sid[1])
+lapply(l_sid, merge_weather_info)
+# library(parallel)
+# mclapply(l_sid, merge_weather_info)
+
+
+load_sid <- function(sid){
+  socc <-  readRDS(paste("occupations_stations_weather/", sid, ".RDS", sep=""))
   i_na <- which(is.na(socc$bikes_hplus))
   if(length(i_na) == 0) i_na=FALSE
   i_col <- which(names(socc) %in% c("name", "last_update", "address", "total_slots", "banking", "movable", "extra", "w_tms_gmt"))
@@ -121,6 +114,7 @@ cor(select(st1, occ, occ_hplus1), use="pairwise.complete.obs")
 pairs(select(st1, occ, inc_occ))
 cor(select(st1, occ, inc_occ), use="pairwise.complete.obs")
 pairs(select(st1, occ, inc_occ, temperature))
+cor(select(st1, occ, inc_occ, temperature, precipitation, wind), use="pairwise.complete.obs")
 acf(as.ts(select(filter(st1, minute==0),inc_occ)), na.action=na.pass)
 pacf(as.ts(select(filter(st1, minute==0),inc_occ)), na.action=na.pass)
 plot(diff(st1$inc_occ), st1$inc_occ[-1])
@@ -131,8 +125,7 @@ cor(diff(st1$inc_occ), st1$inc_occ[-1], use="pairwise.complete.obs")
 #TODO Add percentage of bikes available
 
 compute_mean_increment_tab <- function(socc, max_tms, variable, 
-                                       grouping=c("tms_gmt",
-                                                  "year",
+                                       grouping=c("year",
                                                   "month",
                                                   "wday",
                                                   "hour",
@@ -144,14 +137,14 @@ compute_mean_increment_tab <- function(socc, max_tms, variable,
     # ddply(data,.(year, month, wday, hour, minute), mean, .parallel=TRUE)
     summarise_each_(by_cycle, funs(mean), vars=variable)
 }
-st1_it <- compute_mean_increment_tab(st1, max(st1$tms_gmt, na.rm=TRUE), variable="bikes", grouping=c("wday", "hour"))
-ggplot(data=st1_it, aes(x=hour, y=bikes, group=wday, color=as.factor(wday)))+ geom_line()
+st1_it <- compute_mean_increment_tab(st1, max(st1$tms_gmt, na.rm=TRUE), variable="inc_bikes", grouping=c("wday", "hour"))
+ggplot(data=st1_it, aes(x=hour, y=inc_bikes, group=wday, color=as.factor(wday)))+ geom_line()
 
 st1_it <- compute_mean_increment_tab(st1, max(st1$tms_gmt, na.rm=TRUE), variable="bikes", grouping=c("month", "wday"))
 ggplot(data=st1_it, aes(x=month, y=bikes, group=wday, color=as.factor(wday)))+ geom_line()
 
 
-get_increment <- function(inc_table, tms_gmt, variable="icc_bikes", grouping=c("wday", "hour")){
+get_increment <- function(inc_table, tms_gmt, variable="inc_bikes", grouping=c("wday", "hour")){
   line_to_find <- unlist(lapply(grouping, function(x) do.call(x,args=list(x=tms_gmt))))
   i_line <- which(apply(inc_table[,grouping], 1, function(x) all(x == line_to_find)))
   #print(inc_table[i_line,])
@@ -173,10 +166,10 @@ correct_occ <- function(occ){
 }
 
 increment_model <- function(socc, tms_gmt, variable="bikes", grouping=c("wday", "hour")){
-  icc_var <- paste("icc_", variable, sep="")
-  inc_table <- compute_mean_increment_tab(socc, tms_gmt, variable, grouping)
-  inc <- get_increment(inc_table, tms_gmt, variable, grouping)
-  i_ans <-  which(socc$tms_gmt == tms_gmt)
+  inc_var <- paste("inc_", variable, sep="")
+  inc_table <- compute_mean_increment_tab(socc, tms_gmt, inc_var, grouping)
+  inc <- get_increment(inc_table, tms_gmt+3600, inc_var, grouping)
+  i_ans <-  fmatch(tms_gmt, socc$tms_gmt)
   socc <- socc[i_ans, ]
   ans <- socc[, variable] + inc
   ans
@@ -189,7 +182,7 @@ predict.increment_model <- function(socc, variable="bikes", grouping=c("wday", "
   ans <- foreach(tms=socc$tms_gmt, .combine=c) %dopar% {
     increment_model(socc, tms, variable, grouping)
   }
-  browser()
+  # browser()
   ans <- as.numeric(ans)
   if(variable == "bikes") ans <- correct_nb_bikes(round(ans), socc$bikes+socc$free_slots)
   if(variable == "occ") ans <- correct_occ(ans)
@@ -197,9 +190,14 @@ predict.increment_model <- function(socc, variable="bikes", grouping=c("wday", "
 }
 print(system.time({p_incmod <- predict.increment_model(head(st1))}))
 print(rmse(p_incmod, head(st1$bikes_hplus1)))
-      
-predict.static_model <- function(sid, variable="bikes", grouping=c("wday", "hour")){
-  socc <- load_sid(sid)
+print(system.time({p_incmod <- predict.increment_model(st1)}))
+print(rmse(p_incmod, st1$bikes_hplus1))
+# saveRDS(p_incmod, file="p_incmod.RDS")
+print(system.time({p_incmod_month <- predict.increment_model(st1, grouping=c("month", "wday", "hour"))}))
+print(rmse(p_incmod_month, st1$bikes_hplus1))
+# saveRDS(p_incmod_month, file="p_incmod.RDS")
+
+predict.static_model <- function(socc, variable="bikes", grouping=c("wday", "hour")){
   ans <- socc[, variable]
   ans
 }
@@ -234,7 +232,7 @@ plot_sid_ts <- function(l_sid, variable="bikes"){
     cur_socc <- cur_socc[,c("sid", "tms_gmt", variable)]
     cur_socc <- cbind(cur_socc, col=(cur_socc$sid == l_sid[1]))
   }
-  ggpot(data=data, aes(x="tms_gmt", y=variable, group="sid", color="col"))
+  ggpot(data=data, aes_strings(x="tms_gmt", y=substitute(variable), group="sid", color="col"))
 }
  
 compute_sid_corr <- function(sid, l_sid, variable="bikes"){
