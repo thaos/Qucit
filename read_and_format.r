@@ -131,7 +131,7 @@ compute_mean_increment_tab <- function(socc, max_tms, variable,
                                                   "hour",
                                                   "minute")){
     require(dplyr)
-    i_ant <- which(difftime(max_tms, socc$tms_gmt) >= 0)
+    i_ant <- which(difftime(max_tms, socc$tms_gmt) > 0)
     socc <- socc[i_ant, c(grouping, variable)]
     by_cycle <- group_by_(socc, .dots=grouping)
     # ddply(data,.(year, month, wday, hour, minute), mean, .parallel=TRUE)
@@ -179,11 +179,15 @@ st1_incmod <- increment_model(st1, max(st1$tms_gmt, na.rm=TRUE))
 rmse <- function(predicted, truth) sqrt(mean((predicted - truth)^2))
 
 predict.increment_model <- function(socc, variable="bikes", grouping=c("wday", "hour")){
-  ans <- foreach(tms=socc$tms_gmt, .combine=c) %dopar% {
-    increment_model(socc, tms, variable, grouping)
+  ans <- foreach(tms=socc$tms_gmt, .combine=c) %do% {
+    ans <- increment_model(socc, tms, variable, grouping)
+    print(ans)
+    ans
   }
   # browser()
   ans <- as.numeric(ans)
+  ans[is.na(ans)] <- socc[is.na(ans), variable]
+  browser()
   if(variable == "bikes") ans <- correct_nb_bikes(round(ans), socc$bikes+socc$free_slots)
   if(variable == "occ") ans <- correct_occ(ans)
   ans
@@ -192,10 +196,10 @@ print(system.time({p_incmod <- predict.increment_model(head(st1))}))
 print(rmse(p_incmod, head(st1$bikes_hplus1)))
 print(system.time({p_incmod <- predict.increment_model(st1)}))
 print(rmse(p_incmod, st1$bikes_hplus1))
-# saveRDS(p_incmod, file="p_incmod.RDS")
+saveRDS(p_incmod, file="p_incmod.RDS")
 print(system.time({p_incmod_month <- predict.increment_model(st1, grouping=c("month", "wday", "hour"))}))
 print(rmse(p_incmod_month, st1$bikes_hplus1))
-# saveRDS(p_incmod_month, file="p_incmod.RDS")
+saveRDS(p_incmod_month, file="p_incmod_month.RDS")
 
 predict.static_model <- function(socc, variable="bikes", grouping=c("wday", "hour")){
   ans <- socc[, variable]
