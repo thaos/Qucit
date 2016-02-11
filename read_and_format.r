@@ -281,7 +281,7 @@ gather_sid_ts <- function(l_sid){
     }
     cur_socc <- cur_socc[,c("tms_gmt", "bikes")]
     names(cur_socc)[2] <- paste("bikes_", l_sid[i], sep="")
-    ans <- merge(ans, cur_socc, by="tms_gmt")
+    ans <- merge(ans, cur_socc, by="tms_gmt", all=TRUE)
   }
   names(ans)[-c(1,2)] <- paste("bikes_",l_sid,sep="")
   ans
@@ -289,9 +289,17 @@ gather_sid_ts <- function(l_sid){
 l_sid <-  unique(stations$sid)
 s_ts <- gather_sid_ts(head(l_sid))
 s_ts <- gather_sid_ts(l_sid)
-saveRDS(s_ts, file="s_ts.RDS")
-lm_alls <- lm(data=s_ts[,-1], bikes_hplus1 ~ .)
-step(lm_alls)
+s_ts <- readRDS("s_ts.RDS")
+s_ts <- readRDS("../../../Downloads/s_ts.RDS")
+s_corr <- cor(s_ts[,-(1:2)])[,1]
+i_station <- 2+which(abs(s_corr) < 0.5)
+lm_alls <- lm(data=s_ts[,-c(1, i_station)], bikes_hplus1 ~ .)
+stp_lm <- step(lm_alls)
+var2include <- names(stp_lm$coefficients)
+st1_m <- gather_sid_ts(c(128, 131, 19, 21, 39, 6, 60))
+st1_m <- merge(st1, st1_m[,-2], by="tms_gmt", all.x=TRUE)
+# st1_m <- merge(st1, s_ts[, c("tms_gmt", var2include[-c(1:2)])], by="tms_gmt")
+saveRDS(st1_m, file="st1_m.RDS")
 
 compute_sid_trend <- function(sid, l_sid, variable="bikes"){
   trends <- foreach(cur_sid = l_sid, .combine=c) %dopar% {

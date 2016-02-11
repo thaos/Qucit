@@ -17,41 +17,39 @@ length(lm_fit$coefficients)
 
 predict.lmmod <- function(st){
   # foreach(i=1:nrow(st), .combine=c) %do% {
-  st$month <- as.factor(st$month)
-  st$wday <- as.factor(st$wday)
-  st$hour <- as.factor(st$hour)
   st$month_hplus1 <- as.factor(st$month_hplus1)
   st$wday_hplus1 <- as.factor(st$wday_hplus1)
   st$hour_hplus1 <- as.factor(st$hour_hplus1)
   st$weather <- as.factor(ifelse(!(st$weather_type %in% c("Clear", "Sunny")), "Other", st$weather_type))
-  st$weather <- as.factor(st$weather_type)
+  # st$weather <- as.factor(st$weather_type)
   ans <- st$bikes
   week_number <- (as.numeric(st$tms_gmt)-as.numeric(st$tms_gmt[1]))%/%(3600*24*7)
   for( w in unique(week_number)){
     print(w)
-    st_sb <- subset(st, week_number <= w, select=c("bikes_hplus1", "bikes", "month_hplus1", "wday_hplus1", "hour_hplus1", "weather"))
+    st_sb <- subset(st, week_number <= w, select=c("bikes_hplus1", "bikes", "month_hplus1", "wday_hplus1", "hour_hplus1", "weather", "bikes_128", "bikes_131", "bikes_19", "bikes_21", "bikes_39", "bikes_6", "bikes_60"))
     i_curw <- which(week_number == w)
     i_prew <- which(week_number <= w)
     # st_sb <- mutate(st_sb, bikes=as.factor(bikes),
     #                 month_hplus1=as.factor(month_hplus1),
     #                 wday_hplus1=as.factor(month_hplus1),
     #                 hour_hplus1=as.factor(hour_hplus1))
-    if( w <= 2){
-      formule <- "bikes_hplus1~ bikes + hour_hplus1 "
+    formule <- "bikes_hplus1~ bikes + bikes_128 + bikes_131 + + bikes_19 + bikes_21 + bikes_39 + bikes_6 + bikes_60"
+    if( w <= 2){ 
+      formule <- paste(formule, "+ hour_hplus1")
     }
     else{
       if(w <= 2*4){
-        formule <- "bikes_hplus1~ bikes + wday_hplus1 * hour_hplus1 "
+        formule <- paste(formule, "+ wday_hplus1 * hour_hplus1 ")
       }else{
-        formule <- "bikes_hplus1~ bikes + month_hplus1 + wday_hplus1 * hour_hplus1"
+        formule <- paste(formule, "+ bikes:hour_hplus1 + month_hplus1 + wday_hplus1 * hour_hplus1")
       }
     }
     if(length(unique(st_sb$weather)) >= 2)
       formule <- paste(formule, "+ weather")
-    # print(formule)
-    
-    # print(summary(lm_fit))
-    # print(st_sb[i,])
+    # if(length(unique(st_sb$bikes)) >= 2)
+    #   st_sb$bikes <- as.factor(st_sb$bikes)
+    # else
+    #   st_sb$bikes <- as.integer(st_sb$bikes)
     pred <- try({
       lm_fit <- lm(formula(formule), data=st_sb[-i_curw, ])
       predict(lm_fit, newdata = st_sb[i_curw,])
@@ -64,6 +62,7 @@ predict.lmmod <- function(st){
   }
   ans
 }
+st1 <- load_sid(1)
 st <- head(st1, n=50000)
 p_lmmod <- predict.lmmod(st)
 p_lmmod <- correct_nb_bikes(round(p_lmmod), st$bikes+st$free_slots)
@@ -72,7 +71,14 @@ rmse(p_lmmod, st$bikes_hplus1)
 print(system.time(p_lmmod <- predict.lmmod(st1)))
 p_lmmod <- correct_nb_bikes(round(p_lmmod), st1$bikes+st1$free_slots)
 rmse(p_lmmod, st1$bikes_hplus1)            
-  
+# rmse 2.94 without additionnal stations
+
+st1_m <- readRDS("st1_m.RDS")
+print(system.time(p_lmmod <- predict.lmmod(st1_m)))
+p_lmmod <- correct_nb_bikes(round(p_lmmod), st1_m$bikes+st1_m$free_slots)
+rmse(p_lmmod, st1_m$bikes_hplus1)            
+# rmse 2.97
+
 install.packages("mgcv_1.8-11.zip")
 library(mgcv)
 st1 <- load_sid(1)
@@ -257,6 +263,24 @@ rmse(p_dynmod, st$bikes_hplus1)
 print(system.time(p_dynmod <- predict.dynmod(st1)))
 p_dynmod <- correct_nb_bikes(round(p_dynmod), st1$bikes+st1$free_slots)
 rmse(p_dynmod, st1$bikes_hplus1)        
+
+library(nnet)
+st1 <- load_sid(1)
+st <- st1
+st$month_hplus1 <- as.factor(st$month_hplus1)
+st$wday_hplus1 <- as.factor(st$wday_hplus1)
+# st$hour_hplus1 <- as.factor(st$hour_hplus1)
+st$hm <- scale(st$hour_hplus1 + st$minute_hplus1/60)
+st$bikes <- scale(st$bikes)
+st$bikes_hplus1 <- scale(st$bikes_hplus1)
+st$weather <- as.factor(ifelse(!(st$weather_type %in% c("Clear", "Sunny")), "Other", st$weather_type))
+nn_fit <- nnet(bikes_hplus1~bikes + hm + wday_hplus1 + weather, data=st,
+     size= 12, linout=TRUE, maxit=200) 
+plot(st$bikes_hplus1, residuals(nn_fit))
+nn_pre <- predict(nn_fit)*attr(st$bikes_hplus1, "scaled:scale") + attr(st$bikes_hplus1, "scaled:center")
+plot(st1$bikes_hplus1,correct_nb_bikes(nn_pre, st1$free_slots+st1$bikes))
+plot(st1$bikes_hplus1,correct_nb_bikes(nn_pre, st1$free_slots+st1$bikes))
+rmse(st1$bikes_hplus1,correct_nb_bikes(nn_pre, st1$free_slots+st1$bikes))
 
 install.packages("randomForest")
 library(randomForest)
