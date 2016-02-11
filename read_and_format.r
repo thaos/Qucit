@@ -13,7 +13,7 @@ stations <- read.csv("bordeaux_bikeshare_stations.csv", sep=";")
 occupations <- read.csv("bordeaux_bikeshare_occupations.csv", sep=";")
 saveRDS(occupations, file="occupations.RDS")
 occupations <- readRDS("occupations.RDS")
-
+stations <- read.csv("bordeaux_bikeshare_stations.csv", sep=";")
 l_sid <-  unique(stations$sid)
 dir.create("occupations_stations")
 
@@ -241,41 +241,30 @@ plot_sid_ts <- function(l_sid, variable="bikes"){
  
 compute_sid_corr <- function(sid, l_sid, variable="bikes"){
   require(geosphere)
+  require(foreach)
   socc <- load_sid(sid)
-  coord <- socc[1, c("latitude", "longitude")]
+  coord <- socc[1, c("longitude", "latitude")]
   socc <- socc[,c("tms_gmt", variable)]
   names(socc)[2] <- paste(variable,"_", sid, sep="")
-  v_corr <- foreach(cur_sid = l_sid, .combine=rbind) %dopar% {
+  v_corr <- matrix(NA, nrow=length(l_sid), ncol=2)
+  for(i in seq_along(l_sid)){
+  # v_corr <- foreach(cur_sid = l_sid, .combine=rbind) %do% {
+    cur_sid <- l_sid[i]
     cur_socc <- load_sid(cur_sid)  
-    cur_coord <- cur_socc[1, c("latitude", "longitude")]
+    cur_coord <- cur_socc[1, c("longitude", "latitude")]
     cur_socc <- cur_socc[,c("tms_gmt", variable)]
     names(cur_socc)[2] <- paste(variable,"_", sid, sep="")
-    cur_socc <- merged(socc, cur_socc, by="tms_gmt")
-    corr <- cor(cur_socc[,-1], socc[, -1], use="pairwise.complete.obs")
+    cur_socc <- merge(socc, cur_socc, by="tms_gmt")
+    corr <- cor(cur_socc[,2], cur_socc[, 3], use="pairwise.complete.obs")
     dist <- distm(coord, cur_coord)
-    data.frame(corr=corr, dist=dist)
+    v_corr[i,] <- c(corr, dist)
   }
   v_corr
 }
+stations <- read.csv("bordeaux_bikeshare_stations.csv", sep=";")
+l_sid <-  unique(stations$sid)
+v_corr <- compute_sid_corr(1, l_sid, variable="bikes")
 
-compute_sid_corr <- function(sid, l_sid, variable="bikes"){
-  require(geosphere)
-  socc <- load_sid(sid)
-  coord <- socc[1, c("latitude", "longitude")]
-  socc <- socc[,c("tms_gmt", variable)]
-  names(socc)[2] <- paste(variable,"_", sid, sep="")
-  v_corr <- foreach(cur_sid = l_sid, .combine=rbind) %dopar% {
-    cur_socc <- load_sid(cur_sid)  
-    cur_coord <- cur_socc[1, c("latitude", "longitude")]
-    cur_socc <- cur_socc[,c("tms_gmt", variable)]
-    names(cur_socc)[2] <- paste(variable,"_", sid, sep="")
-    cur_socc <- merged(socc, cur_socc, by="tms_gmt")
-    corr <- cor(cur_socc[,-1], socc[, -1], use="pairwise.complete.obs")
-    dist <- distm(coord, cur_coord)
-    data.frame(corr=corr, dist=dist)
-  }
-  v_corr
-}
 
 compute_sid_trend <- function(sid, l_sid, variable="bikes"){
   trends <- foreach(cur_sid = l_sid, .combine=c) %dopar% {
