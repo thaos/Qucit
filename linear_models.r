@@ -24,6 +24,7 @@ predict.lmmod <- function(st){
   st$wday_hplus1 <- as.factor(st$wday_hplus1)
   st$hour_hplus1 <- as.factor(st$hour_hplus1)
   st$weather <- as.factor(ifelse(!(st$weather_type %in% c("Clear", "Sunny")), "Other", st$weather_type))
+  st$weather <- as.factor(st$weather_type)
   ans <- st$bikes
   week_number <- (as.numeric(st$tms_gmt)-as.numeric(st$tms_gmt[1]))%/%(3600*24*7)
   for( w in unique(week_number)){

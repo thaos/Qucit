@@ -264,7 +264,34 @@ compute_sid_corr <- function(sid, l_sid, variable="bikes"){
 stations <- read.csv("bordeaux_bikeshare_stations.csv", sep=";")
 l_sid <-  unique(stations$sid)
 v_corr <- compute_sid_corr(1, l_sid, variable="bikes")
+s_corr <- cbind(stations,v_corr)
+names(s_corr)[10:11] <- c("corr", "dist")
+plot_station_map(s_corr, "corr")
 
+gather_sid_ts <- function(l_sid){
+  require(geosphere)
+  require(foreach)
+  for(i in seq_along(l_sid)){
+    # v_corr <- foreach(cur_sid = l_sid, .combine=rbind) %do% {
+    cur_sid <- l_sid[i]
+    cur_socc <- load_sid(cur_sid)  
+    if( i== 1){
+      ans <- cur_socc[,c("tms_gmt", "bikes_hplus1","bikes")]
+      next
+    }
+    cur_socc <- cur_socc[,c("tms_gmt", "bikes")]
+    names(cur_socc)[2] <- paste("bikes_", l_sid[i], sep="")
+    ans <- merge(ans, cur_socc, by="tms_gmt")
+  }
+  names(ans)[-c(1,2)] <- paste("bikes_",l_sid,sep="")
+  ans
+}
+l_sid <-  unique(stations$sid)
+s_ts <- gather_sid_ts(head(l_sid))
+s_ts <- gather_sid_ts(l_sid)
+saveRDS(s_ts, file="s_ts.RDS")
+lm_alls <- lm(data=s_ts[,-1], bikes_hplus1 ~ .)
+step(lm_alls)
 
 compute_sid_trend <- function(sid, l_sid, variable="bikes"){
   trends <- foreach(cur_sid = l_sid, .combine=c) %dopar% {
