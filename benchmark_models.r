@@ -27,6 +27,7 @@ get_increment <- function(inc_table, tms_gmt, variable="inc_bikes", grouping=c("
 # st1_inc <- get_increment(st1_it, max(st1$tms_gmt, na.rm=TRUE))
 
 increment_model <- function(socc, tms_gmt, variable="bikes", grouping=c("wday", "hour")){
+  require(fastmatch)
   inc_var <- paste("inc_", variable, sep="")
   inc_table <- compute_mean_increment_tab(socc, tms_gmt-3600, inc_var, grouping)
   inc <- get_increment(inc_table, tms_gmt+3600, inc_var, grouping)

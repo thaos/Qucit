@@ -1,5 +1,7 @@
 source("tools.r")
-
+library(doMC)
+library(fastmatch)
+registerDoMC(cores=2)
 
 
 ################################################################################
@@ -24,6 +26,7 @@ saveRDS(p_incmod_month, file="p_incmod_month.RDS")
 
 ################################################################################
 # Linear Models
+source("linear_models.r")
 
 #lm
 st1 <- load_sid(1)

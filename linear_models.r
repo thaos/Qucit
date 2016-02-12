@@ -30,7 +30,7 @@ predict.lmmod <- function(st){
     #                 month_hplus1=as.factor(month_hplus1),
     #                 wday_hplus1=as.factor(month_hplus1),
     #                 hour_hplus1=as.factor(hour_hplus1))
-    formule <- "bikes_hplus1~ bikes + bikes_128 + bikes_131 + + bikes_19 + bikes_21 + bikes_39 + bikes_6 + bikes_60"
+    formule <- "bikes_hplus1~ bikes + bikes_128 + bikes_131 + bikes_19 + bikes_21 + bikes_39 + bikes_6 + bikes_60"
     if( w <= 2){ 
       formule <- paste(formule, "+ hour_hplus1")
     }
@@ -38,7 +38,8 @@ predict.lmmod <- function(st){
       if(w <= 2*4){
         formule <- paste(formule, "+ wday_hplus1 * hour_hplus1 ")
       }else{
-        formule <- paste(formule, "+ bikes:hour_hplus1 + month_hplus1 + wday_hplus1 * hour_hplus1")
+        formule <- paste(formule, "+ month_hplus1 + wday_hplus1 * hour_hplus1")
+        # formule <- paste(formule, "+ bikes:hour_hplus1 + month_hplus1 + wday_hplus1 * hour_hplus1")
       }
     }
     if(length(unique(st_sb$weather)) >= 2)
