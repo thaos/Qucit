@@ -2,18 +2,15 @@ library(lubridate)
 library(foreach)
 library(dplyr)
 source("tools.r")
-st1 <- load_sid(1)
-
-lm_fit <- lm(data=st1, inc_bikes~ bikes+month+wday*hour) 
-lm_fit <- lm(data=st1, bikes_hplus1 ~ bikes+month+wday*hour) 
-lm_fit <- lm(data=st1, bikes_hplus1 ~ month+wday*hour+as.factor(bikes)) 
-lm_fit <- lm(data=st1, bikes_hplus1 ~ month_hplus1+wday_hplus1*hour_hplus1+as.factor(bikes)) 
-lm_fit <- lm(data=head(st1), bikes_hplus1 ~ as.factor(month_hplus1) +
-               as.factor(wday_hplus1)*as.factor(hour_hplus1) +
-               as.factor(bikes)) 
-summary(lm_fit)
-sqrt(mean(residuals(lm_fit)^2))
-length(lm_fit$coefficients)
+# st1 <- load_sid(1)
+# lm_fit <- lm(data=st1, bikes_hplus1 ~ month+wday*hour+as.factor(bikes)) 
+# lm_fit <- lm(data=st1, bikes_hplus1 ~ month_hplus1+wday_hplus1*hour_hplus1+as.factor(bikes)) 
+# lm_fit <- lm(data=head(st1), bikes_hplus1 ~ as.factor(month_hplus1) +
+#                as.factor(wday_hplus1)*as.factor(hour_hplus1) +
+#                as.factor(bikes)) 
+# summary(lm_fit)
+# sqrt(mean(residuals(lm_fit)^2))
+# length(lm_fit$coefficients)
 
 predict.lmmod <- function(st){
   # foreach(i=1:nrow(st), .combine=c) %do% {
@@ -62,38 +59,23 @@ predict.lmmod <- function(st){
   }
   ans
 }
-st1 <- load_sid(1)
-st <- head(st1, n=50000)
-p_lmmod <- predict.lmmod(st)
-p_lmmod <- correct_nb_bikes(round(p_lmmod), st$bikes+st$free_slots)
-rmse(p_lmmod, st$bikes_hplus1)
-        
-print(system.time(p_lmmod <- predict.lmmod(st1)))
-p_lmmod <- correct_nb_bikes(round(p_lmmod), st1$bikes+st1$free_slots)
-rmse(p_lmmod, st1$bikes_hplus1)            
-# rmse 2.94 without additionnal stations
 
-st1_m <- readRDS("st1_m.RDS")
-print(system.time(p_lmmod <- predict.lmmod(st1_m)))
-p_lmmod <- correct_nb_bikes(round(p_lmmod), st1_m$bikes+st1_m$free_slots)
-rmse(p_lmmod, st1_m$bikes_hplus1)            
-# rmse 2.97
 
-install.packages("mgcv_1.8-11.zip")
-library(mgcv)
-st1 <- load_sid(1)
-st1 <- head(mutate(st1, handm= hour_hplus1 + minute_hplus1/60), n=200)
-gam_fit <- gam(data=st1, bikes_hplus1~ te(wday_hplus1, handm)+ s(bikes) + s(month))
-gam_fit <- gam(data=st1, bikes_hplus1~ s(handm)+ s(bikes) + s(month))
-gam_fit <- gam(data=st1, bikes_hplus1~ s(wday_hplus1, k=2)+ s(handm)+ s(bikes) + s(month))
-gam_fit <- gam(data=st1, bikes_hplus1~ te(wday_hplus1, handm, k=3))
-summary(gam_fit)
-sqrt(mean(residuals(gam_fit)^2))
-fv <- fitted(gam_fit)
-rv <- residuals(gam_fit)
-plot(hexbin(x=fitted(gam_fit), y=residuals(gam_fit)))
-res_fit <- lm(rv~ fv)
-abline(b=coefficients(res_fit)[2], a=coefficients(res_fit)[1])
+# install.packages("mgcv_1.8-11.zip")
+# library(mgcv)
+# st1 <- load_sid(1)
+# st1 <- head(mutate(st1, handm= hour_hplus1 + minute_hplus1/60), n=200)
+# gam_fit <- gam(data=st1, bikes_hplus1~ te(wday_hplus1, handm)+ s(bikes) + s(month))
+# gam_fit <- gam(data=st1, bikes_hplus1~ s(handm)+ s(bikes) + s(month))
+# gam_fit <- gam(data=st1, bikes_hplus1~ s(wday_hplus1, k=2)+ s(handm)+ s(bikes) + s(month))
+# gam_fit <- gam(data=st1, bikes_hplus1~ te(wday_hplus1, handm, k=3))
+# summary(gam_fit)
+# sqrt(mean(residuals(gam_fit)^2))
+# fv <- fitted(gam_fit)
+# rv <- residuals(gam_fit)
+# plot(hexbin(x=fitted(gam_fit), y=residuals(gam_fit)))
+# res_fit <- lm(rv~ fv)
+# abline(b=coefficients(res_fit)[2], a=coefficients(res_fit)[1])
 
 ok_var <- function(st){
   k <- apply(st, 2, function(x) length(unique(x)))
@@ -132,14 +114,11 @@ predict.gammod <- function(st){
   require(dyn)
   require(zoo)
   ans <- st$bikes
-  z_st <- zoo(cbind(tms_gmt=st$tms_gmt,
-                    bikes_hplus1=st$bikes_hplus1,
-                    bikes=st$bikes, 
-                    inc_bikes=st$inc_bikes, 
-                    month_hplus1=st$month_hplus1,
-                    wday_hplus1=st$wday_hplus1,
-                    dh_hplus1=st$wday_hplus1+st$hour_hplus1/24+st$minute_hplus1/24/60 ),
-              order.by = st$tms_gmt) 
+  st$month_hplus1 <- as.factor(st$month_hplus1)
+  st$wday_hplus1 <- as.factor(st$wday_hplus1)
+  st$hour_hplus1 <- as.factor(st$hour_hplus1)
+  st$weather <- as.factor(ifelse(!(st$weather_type %in% c("Clear", "Sunny")), "Other", st$weather_type))
+  st$dh_hplus1=st$wday_hplus1+st$hour_hplus1/24+st$minute_hplus1/2
   week_number <- (as.numeric(st$tms_gmt)-as.numeric(st$tms_gmt[1]))%/%(3600*24*7)
   for( w in unique(week_number)){
     print(w)
@@ -158,12 +137,10 @@ predict.gammod <- function(st){
       formule_gam <- "bikes_hplus1 ~ s(bikes) + s(dh_hplus1) + wday_hplus1 + month_hplus1"
     }
     pred <- try({ 
-      mf <- dyn$model.frame(formula(formule), data = z_st[week_number <= w,])
-      for( ic in 4 : ncol(mf)) mf[, ic] <- as.factor(mf[, ic])
-      gam_fit <- gam(data=mf, formula(formule_gam))
+      gam_fit <- gam(data=st[i_prew,], formula(formule_gam))
       print(summary(gam_fit))
       # print(st_sb[i,])
-      predict(gam_fit, newdata = tail(mf[,-1], n=length(i_curw)))
+      predict(gam_fit, newdata = st[i_curw,])
     })
     #print(pred)
     if(class(pred) == "try-error") next 
@@ -171,27 +148,19 @@ predict.gammod <- function(st){
   }
   ans
 }
-st <- head(st1, n=50000)
-p_gammod <- predict.gammod(st)
-p_gammod <- correct_nb_bikes(round(p_gammod), st$bikes+st$free_slots)
-rmse(p_gammod, st$bikes_hplus1)
-
-print(system.time(p_gammod <- predict.gammod(st1)))
-p_gammod <- correct_nb_bikes(round(p_gammod), st1$bikes+st1$free_slots)
-rmse(p_gammod, st1$bikes_hplus1)    
 
 
-install.packages("dyn_0.2-9.zip")
-install.packages("zoo_1.7-12.zip")
-library(dyn)
-st1 <- load_sid(1)
-dyn_fit <- dyn$lm(data=st1, bikes_hplus1 ~ month_hplus1+wday_hplus1*hour_hplus1+bikes+lag(inc_bikes)+lag(inc_bikes, 2)+lag(inc_bikes, 3)+lag(inc_bikes, 4))
-dyn_fit <- dyn$lm(data=st1, bikes_hplus1 ~ month_hplus1+wday_hplus1*hour_hplus1+bikes+lag(inc_bikes))
-plot(hexbin(x=fitted(dyn_fit), y=residuals(gam_fit)))
-head(st1$inc_bikes)
-lag(head(st1$inc_bikes))
-z_inc_bikes <- zoo(st1$inc_bikes, order.by = st1$tms_gmt)
-ts(z_inc_bikes)
+# install.packages("dyn_0.2-9.zip")
+# install.packages("zoo_1.7-12.zip")
+# library(dyn)
+# st1 <- load_sid(1)
+# dyn_fit <- dyn$lm(data=st1, bikes_hplus1 ~ month_hplus1+wday_hplus1*hour_hplus1+bikes+lag(inc_bikes)+lag(inc_bikes, 2)+lag(inc_bikes, 3)+lag(inc_bikes, 4))
+# dyn_fit <- dyn$lm(data=st1, bikes_hplus1 ~ month_hplus1+wday_hplus1*hour_hplus1+bikes+lag(inc_bikes))
+# plot(hexbin(x=fitted(dyn_fit), y=residuals(gam_fit)))
+# head(st1$inc_bikes)
+# lag(head(st1$inc_bikes))
+# z_inc_bikes <- zoo(st1$inc_bikes, order.by = st1$tms_gmt)
+# ts(z_inc_bikes)
 
 
 predict.dynmod <- function(st){
@@ -255,46 +224,39 @@ predict.dynmod <- function(st){
   }
   ans
 }
-st <- head(st1, n=50000)
-p_dynmod <- predict.dynmod(st)
-p_dynmod <- correct_nb_bikes(round(p_dynmod), st$bikes+st$free_slots)
-rmse(p_dynmod, st$bikes_hplus1)
-
-print(system.time(p_dynmod <- predict.dynmod(st1)))
-p_dynmod <- correct_nb_bikes(round(p_dynmod), st1$bikes+st1$free_slots)
-rmse(p_dynmod, st1$bikes_hplus1)        
-
-library(nnet)
-st1 <- load_sid(1)
-st <- st1
-st$month_hplus1 <- as.factor(st$month_hplus1)
-st$wday_hplus1 <- as.factor(st$wday_hplus1)
-# st$hour_hplus1 <- as.factor(st$hour_hplus1)
-st$hm <- scale(st$hour_hplus1 + st$minute_hplus1/60)
-st$bikes <- scale(st$bikes)
-st$bikes_hplus1 <- scale(st$bikes_hplus1)
-st$weather <- as.factor(ifelse(!(st$weather_type %in% c("Clear", "Sunny")), "Other", st$weather_type))
-nn_fit <- nnet(bikes_hplus1~bikes + hm + wday_hplus1 + weather, data=st,
-     size= 12, linout=TRUE, maxit=200) 
-plot(st$bikes_hplus1, residuals(nn_fit))
-nn_pre <- predict(nn_fit)*attr(st$bikes_hplus1, "scaled:scale") + attr(st$bikes_hplus1, "scaled:center")
-plot(st1$bikes_hplus1,correct_nb_bikes(nn_pre, st1$free_slots+st1$bikes))
-plot(st1$bikes_hplus1,correct_nb_bikes(nn_pre, st1$free_slots+st1$bikes))
-rmse(st1$bikes_hplus1,correct_nb_bikes(nn_pre, st1$free_slots+st1$bikes))
-
-install.packages("randomForest")
-library(randomForest)
-rm_var <-c("sid", "tms_gmt", "status", "latitude", "longitude", "free_slots_hplus1",
-           "occ_hplus1", "inc_bikes", "inc_occ", "year", "month", "wday", "hour", "minute")
-var_names <- names(st1)
-var_names <- var_names[!(var_names %in% rm_var)]
-st <- st1[, var_names]
-rf_fit <- randomForest(bikes_hplus ~ ., data=st, mtry=3, importance=TRUE, na.action=na.omit)
 
 
-install.packages("forecast")
-library(forecast)
-y <- msts(x, seasonal.periods=c(7,365.25))
-fit <- tbats(y)
-fc <- forecast(fit)
-plot(fc)
+# library(nnet)
+# st1 <- load_sid(1)
+# st <- st1
+# st$month_hplus1 <- as.factor(st$month_hplus1)
+# st$wday_hplus1 <- as.factor(st$wday_hplus1)
+# # st$hour_hplus1 <- as.factor(st$hour_hplus1)
+# st$hm <- scale(st$hour_hplus1 + st$minute_hplus1/60)
+# st$bikes <- scale(st$bikes)
+# st$bikes_hplus1 <- scale(st$bikes_hplus1)
+# st$weather <- as.factor(ifelse(!(st$weather_type %in% c("Clear", "Sunny")), "Other", st$weather_type))
+# nn_fit <- nnet(bikes_hplus1~bikes + hm + wday_hplus1 + weather, data=st,
+#      size= 12, linout=TRUE, maxit=200) 
+# plot(st$bikes_hplus1, residuals(nn_fit))
+# nn_pre <- predict(nn_fit)*attr(st$bikes_hplus1, "scaled:scale") + attr(st$bikes_hplus1, "scaled:center")
+# plot(st1$bikes_hplus1,correct_nb_bikes(nn_pre, st1$free_slots+st1$bikes))
+# plot(st1$bikes_hplus1,correct_nb_bikes(nn_pre, st1$free_slots+st1$bikes))
+# rmse(st1$bikes_hplus1,correct_nb_bikes(nn_pre, st1$free_slots+st1$bikes))
+# 
+# install.packages("randomForest")
+# library(randomForest)
+# rm_var <-c("sid", "tms_gmt", "status", "latitude", "longitude", "free_slots_hplus1",
+#            "occ_hplus1", "inc_bikes", "inc_occ", "year", "month", "wday", "hour", "minute")
+# var_names <- names(st1)
+# var_names <- var_names[!(var_names %in% rm_var)]
+# st <- st1[, var_names]
+# rf_fit <- randomForest(bikes_hplus ~ ., data=st, mtry=3, importance=TRUE, na.action=na.omit)
+# 
+# 
+# install.packages("forecast")
+# library(forecast)
+# y <- msts(x, seasonal.periods=c(7,365.25))
+# fit <- tbats(y)
+# fc <- forecast(fit)
+# plot(fc)
