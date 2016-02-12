@@ -12,7 +12,8 @@ source("tools.r")
 # sqrt(mean(residuals(lm_fit)^2))
 # length(lm_fit$coefficients)
 
-predict.lmmod <- function(st){
+predict.lmmod <- function(st, formule="bikes_hplus1~ bikes "){
+  require(qmap)
   # foreach(i=1:nrow(st), .combine=c) %do% {
   st$month_hplus1 <- as.factor(st$month_hplus1)
   st$wday_hplus1 <- as.factor(st$wday_hplus1)
@@ -25,12 +26,12 @@ predict.lmmod <- function(st){
     print(w)
     st_sb <- subset(st, week_number <= w, select=c("bikes_hplus1", "bikes", "month_hplus1", "wday_hplus1", "hour_hplus1", "weather", "bikes_128", "bikes_131", "bikes_19", "bikes_21", "bikes_39", "bikes_6", "bikes_60"))
     i_curw <- which(week_number == w)
-    i_prew <- which(week_number <= w)
+    i_prew <- which(week_number < w)
     # st_sb <- mutate(st_sb, bikes=as.factor(bikes),
     #                 month_hplus1=as.factor(month_hplus1),
     #                 wday_hplus1=as.factor(month_hplus1),
     #                 hour_hplus1=as.factor(hour_hplus1))
-    formule <- "bikes_hplus1~ bikes + bikes_128 + bikes_131 + bikes_19 + bikes_21 + bikes_39 + bikes_6 + bikes_60"
+    #+ bikes_128 + bikes_131 + bikes_19 + bikes_21 + bikes_39 + bikes_6 + bikes_60
     if( w <= 2){ 
       formule <- paste(formule, "+ hour_hplus1")
     }
@@ -38,18 +39,24 @@ predict.lmmod <- function(st){
       if(w <= 2*4){
         formule <- paste(formule, "+ wday_hplus1 * hour_hplus1 ")
       }else{
-        formule <- paste(formule, "+ month_hplus1 + wday_hplus1 * hour_hplus1")
+        # formule <- paste(formule, "+ month_hplus1 + wday_hplus1 * hour_hplus1")
         # formule <- paste(formule, "+ bikes:hour_hplus1 + month_hplus1 + wday_hplus1 * hour_hplus1")
+        formule <- paste(formule, "+ bikes:hour_hplus1 + wday_hplus1 * hour_hplus1")
       }
     }
     if(length(unique(st_sb$weather)) >= 2)
       formule <- paste(formule, "+ weather")
-    # if(length(unique(st_sb$bikes)) >= 2)
-    #   st_sb$bikes <- as.factor(st_sb$bikes)
-    # else
-    #   st_sb$bikes <- as.integer(st_sb$bikes)
+#     if(length(unique(st_sb$bikes)) >= 2)
+#       st_sb$bikes <- as.factor(st_sb$bikes)
+#     else
+#       st_sb$bikes <- as.integer(st_sb$bikes)
     pred <- try({
-      lm_fit <- lm(formula(formule), data=st_sb[-i_curw, ])
+      lm_fit <- lm(formula(formule), data=st_sb[-i_curw, ])      
+      print(length(predict(lm_fit)))
+      print(length(st$free_slots[i_prew]+st$bikes[i_prew]))
+      print(table(
+        correct_nb_bikes(predict(lm_fit), st$free_slots[i_prew]+st$bikes[i_prew])
+        , st_sb$bikes_hplus[i_prew]))
       predict(lm_fit, newdata = st_sb[i_curw,])
     })
     print(class(pred))
@@ -124,7 +131,7 @@ predict.gammod <- function(st){
   for( w in unique(week_number)){
     print(w)
     i_curw <- which(week_number == w)
-    i_prew <- which(week_number <= w)
+    i_prew <- which(week_number < w)
     #formule <- "bikes_hplus1 ~ sbikes + lag(inc_bikes, -4) + lag(bikes, -1) + wdh_plus1"
     #formule_gam <- "bikes_hplus1 ~ s(bikes) + s(`lag(inc_bikes, -4)`) + s(`lag(bikes, -1)`) + s(wdh_hplus)"
     formule <- "bikes_hplus1 ~ bikes + dh_hplus1"
@@ -134,13 +141,17 @@ predict.gammod <- function(st){
       formule_gam <- "bikes_hplus1 ~ s(bikes) + s(dh_hplus1) + wday_hplus1"
     }
     if(w >= 2*4){
-      formule <- "bikes_hplus1 ~ bikes + dh_hplus1 + wday_hplus1+ month_hplus1"
-      formule_gam <- "bikes_hplus1 ~ s(bikes) + s(dh_hplus1) + wday_hplus1 + month_hplus1"
+      formule <- "bikes_hplus1 ~ bikes + dh_hplus1 + wday_hplus1" #+ month_hplus1"
+      formule_gam <- "bikes_hplus1 ~ s(bikes) + s(dh_hplus1) + wday_hplus1" # + month_hplus1"
     }
     pred <- try({ 
       gam_fit <- gam(data=st[i_prew,], formula(formule_gam))
-      print(summary(gam_fit))
+      #print(summary(gam_fit))
       # print(st_sb[i,])
+      print(table(
+        correct_nb_bikes(predict(lm_fit), st$free_slots[i_prew]+st$bikes[i_prew])
+        , st_sb$bikes_hplus[i_prew]))
+      predict(lm_fit, newdata = st_sb[i_curw,])
       predict(gam_fit, newdata = st[i_curw,])
     })
     #print(pred)
@@ -175,14 +186,15 @@ predict.dynmod <- function(st){
                     inc_bikes=st$inc_bikes, 
                     month_hplus1=st$month_hplus1,
                     wday_hplus1=st$wday_hplus1,
-                    hour_hplus1=st$hour_hplus1),
+                    hour_hplus1=st$hour_hplus1,
+                    weather=as.factor(ifelse(!(st$weather_type %in% c("Clear", "Sunny")), "Other", st$weather_type))),
               order.by = st$tms_gmt) 
   print(names(z_st)) 
   week_number <- (as.numeric(st$tms_gmt)-as.numeric(st$tms_gmt[1]))%/%(3600*24*7)
   for( w in unique(week_number)){
     print(w)
     i_curw <- which(week_number == w)
-    i_prew <- which(week_number <= w)
+    i_prew <- which(week_number < w)
     # st_sb <- mutate(st_sb, bikes=as.factor(bikes),
     #                 month_hplus1=as.factor(month_hplus1),
     #                 wday_hplus1=as.factor(month_hplus1),
@@ -196,9 +208,13 @@ predict.dynmod <- function(st){
         formule <- "bikes_hplus1 ~ bikes + lag(inc_bikes, -4) + lag(bikes, -1) + wday_hplus1 * hour_hplus1"
         formule_lm <- "bikes_hplus1 ~ bikes + `lag(inc_bikes, -4)` + `lag(bikes, -1)` + wday_hplus1 * hour_hplus1"
       }else{
-        formule <- "bikes_hplus1 ~ bikes + lag(inc_bikes, -4) + lag(bikes, -1)+ month_hplus1 + wday_hplus1 * hour_hplus1"
-        formule_lm <- "bikes_hplus1 ~ bikes + `lag(inc_bikes, -4)` + `lag(bikes, -1)`+ month_hplus1 + wday_hplus1 * hour_hplus1"
+        formule <- "bikes_hplus1 ~ bikes*hour_hplus1 + lag(inc_bikes, -4) + lag(bikes, -1)+  wday_hplus1 * hour_hplus1"
+        formule_lm <- "bikes_hplus1 ~ bikes*hour_hplus1 + `lag(inc_bikes, -4)` + `lag(bikes, -1)`+  wday_hplus1 * hour_hplus1"
       }
+    }
+    if(length(unique(z_st$weather)) >= 2){
+      formule <- paste(formule, "+ weather")
+      formule_lm <- paste(formule_lm, "+ weather")
     }
     ans <- st$bikes
     print(formule)
@@ -225,6 +241,56 @@ predict.dynmod <- function(st){
   }
   ans
 }
+
+predict.nnmod <- function(st, formule="bikes_hplus1~ bikes "){
+  require(nnet)
+  # foreach(i=1:nrow(st), .combine=c) %do% {
+  st$month_hplus1 <- as.factor(st$month_hplus1)
+  st$wday_hplus1 <- as.factor(st$wday_hplus1)
+  st$bikes <- scale(st$bikes)
+  st$bikes_hplus1 <- scale(st$bikes_hplus1)
+  st$hm <- scale(st$hour_hplus1 + st$minute_hplus1/60)
+  st$weather <- as.factor(ifelse(!(st$weather_type %in% c("Clear", "Sunny")), "Other", st$weather_type))
+  # st$weather <- as.factor(st$weather_type)
+  ans <- st$bikes
+  week_number <- (as.numeric(st$tms_gmt)-as.numeric(st$tms_gmt[1]))%/%(3600*24*7)
+  for( w in unique(week_number)){
+    print(w)
+    st_sb <- subset(st, week_number <= w, select=c("bikes_hplus1", "bikes", "month_hplus1", "wday_hplus1", "hour_hplus1", "hm", "weather"))
+    i_curw <- which(week_number == w)
+    i_prew <- which(week_number < w)
+    if( w <= 2){ 
+      formule <- paste(formule, "+ hour_hm")
+    }
+    else{
+        # formule <- paste(formule, "+ month_hplus1 + wday_hplus1 * hour_hplus1")
+        # formule <- paste(formule, "+ bikes:hour_hplus1 + month_hplus1 + wday_hplus1 * hour_hplus1")
+        formule <- paste(formule, "+ wday_hplus1 + hmlus1")
+    }
+    if(length(unique(st_sb$weather)) >= 2)
+      formule <- paste(formule, "+ weather")
+    #     if(length(unique(st_sb$bikes)) >= 2)
+    #       st_sb$bikes <- as.factor(st_sb$bikes)
+    #     else
+    #       st_sb$bikes <- as.integer(st_sb$bikes)
+    pred <- try({
+      nn_fit <- nnet(bikes_hplus1~bikes + hm + wday_hplus1 + weather, data=st_sb[-i_curw, ],size= 12, linout=TRUE, maxit=200) 
+      predict(nn_fit, newdata=st_sb[i_curw,])*attr(st$bikes_hplus1, "scaled:scale") + attr(st$bikes_hplus1, "scaled:center")
+    })
+    print(class(pred))
+    if(class(pred) == "try-error")
+      next
+    else
+      ans[i_curw] <- ifelse(is.na(pred), st$bikes[i_curw], pred)
+  }
+  ans
+}
+
+
+# 
+# plot(st$bikes_hplus1, residuals(nn_fit))
+# 
+
 
 
 # library(nnet)

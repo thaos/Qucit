@@ -5,6 +5,7 @@ compute_mean_increment_tab <- function(socc, max_tms, variable,
                                                   "hour",
                                                   "minute")){
   require(dplyr)
+  require(lubridate)
   i_ant <- which(difftime(max_tms, socc$tms_gmt) >= 0)
   socc <- socc[i_ant, c(grouping, variable)]
   by_cycle <- group_by_(socc, .dots=grouping)
@@ -39,7 +40,7 @@ increment_model <- function(socc, tms_gmt, variable="bikes", grouping=c("wday", 
 # st1_incmod <- increment_model(st1, max(st1$tms_gmt, na.rm=TRUE))
 # 
 predict.increment_model <- function(socc, variable="bikes", grouping=c("wday", "hour")){
-  ans <- foreach(tms=socc$tms_gmt, .combine=c) %do% {
+  ans <- foreach(tms=socc$tms_gmt, .combine=c) %dopar% {
     ans <- increment_model(socc, tms, variable, grouping)
     print(ans)
     ans
@@ -47,7 +48,7 @@ predict.increment_model <- function(socc, variable="bikes", grouping=c("wday", "
   # browser()
   ans <- as.numeric(ans)
   ans[is.na(ans)] <- socc[is.na(ans), variable]
-  browser()
+  #browser()
   if(variable == "bikes") ans <- correct_nb_bikes(round(ans), socc$bikes+socc$free_slots)
   if(variable == "occ") ans <- correct_occ(ans)
   ans
